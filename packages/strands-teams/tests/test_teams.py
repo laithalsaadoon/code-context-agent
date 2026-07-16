@@ -369,3 +369,127 @@ def test_missing_layout_in_state_raises() -> None:
     ctx = ToolContext(tool_use={"toolUseId": "t", "name": "x", "input": {}}, agent=None, invocation_state={})
     with pytest.raises(RuntimeError, match="layout"):
         teams.read_team_findings.__wrapped__(tool_context=ctx)
+
+
+# ---------------------------------------------------------------------------
+# Typed findings — write path + read_team_findings round-trip seam (AC-7-3, AC-7-4)
+# ---------------------------------------------------------------------------
+def _seed_typed_findings(layout: TeamsLayout, team_id: str, findings: list[dict[str, Any]]) -> dict[str, Any]:
+    """Write typed findings via the real write_findings tool (the write path seam)."""
+    from strands_teams.write_file import make_write_findings
+
+    write_findings = make_write_findings(layout, team_id)
+    layout.team_dir(team_id).mkdir(parents=True, exist_ok=True)
+    return json.loads(write_findings.__wrapped__(findings=findings))
+
+
+def test_typed_findings_round_trip_via_write_and_read(layout: TeamsLayout) -> None:
+    # AC-7-3: write real Finding objects through the write path, then read them
+    # back typed via read_team_findings; parsed == written, and the evidence gate
+    # flags a seeded blocking-without-evidence finding.
+    seeded = [
+        {
+            "statement": "Blocking issue with no evidence",
+            "severity": "critical",
+            "blocking": True,
+            "created_by": "team-a",
+        },
+        {
+            "statement": "Evidenced high finding",
+            "severity": "high",
+            "blocking": True,
+            "evidence": [{"type": "file_line", "uri": "src/auth.py:42"}],
+            "confidence": 0.8,
+            "created_by": "team-a",
+        },
+        {"statement": "Just an info note", "severity": "info", "created_by": "team-a"},
+    ]
+    write_result = _seed_typed_findings(layout, "team-a", seeded)
+    assert write_result["status"] == "success"
+    assert write_result["count"] == 3
+    # write-path evidence gate already flags the blocking-without-evidence one (AC-5-2).
+    assert write_result["evidence_gate"]["passed"] is False
+    assert write_result["evidence_gate"]["flagged"] == ["Blocking issue with no evidence"]
+
+    ctx = _make_context(layout)
+    read = json.loads(teams.read_team_findings.__wrapped__(tool_context=ctx, team_id="team-a"))
+    assert read["status"] == "ok"
+    assert read["source"] == "typed"
+    assert read["finding_count"] == 3
+    statements = [f["statement"] for f in read["findings"]]
+    assert statements == [s["statement"] for s in seeded]
+    # AC-5-3: read-path evidence gate summary flags the blocking-without-evidence finding.
+    assert read["evidence_gate"]["passed"] is False
+    assert read["evidence_gate"]["flagged"] == ["Blocking issue with no evidence"]
+
+
+def test_typed_read_also_surfaces_markdown_narrative(layout: TeamsLayout) -> None:
+    # AC-6-2: on the happy path (both findings.json and findings.md present) the
+    # typed read must ALSO carry the rich markdown narrative + findings_path so
+    # bundle synthesis keeps its markdown input rather than terse typed statements.
+    md_body = "# Findings\n\n```mermaid\ngraph TD; A-->B\n```\n\nSee `src/auth.py:42` for detail.\n"
+    _seed_typed_findings(layout, "team-a", [{"statement": "note", "severity": "low", "created_by": "team-a"}])
+    layout.findings_path("team-a").write_text(md_body)
+    ctx = _make_context(layout)
+
+    read = json.loads(teams.read_team_findings.__wrapped__(tool_context=ctx, team_id="team-a"))
+    assert read["source"] == "typed"
+    assert read["findings_path"] == str(layout.findings_path("team-a"))
+    assert read["markdown"] == md_body
+    assert read["markdown_line_count"] == len(md_body.splitlines())
+
+
+def test_typed_read_reports_findings_path_when_markdown_absent(layout: TeamsLayout) -> None:
+    # AC-6-2: even with no findings.md, the typed read surfaces findings_path so the
+    # coordinator can discover (and later read) the narrative; no markdown key is set.
+    _seed_typed_findings(layout, "team-a", [{"statement": "note", "severity": "low", "created_by": "team-a"}])
+    ctx = _make_context(layout)
+
+    read = json.loads(teams.read_team_findings.__wrapped__(tool_context=ctx, team_id="team-a"))
+    assert read["source"] == "typed"
+    assert read["findings_path"] == str(layout.findings_path("team-a"))
+    assert "markdown" not in read
+
+
+def test_write_findings_rejects_invalid_schema(layout: TeamsLayout) -> None:
+    # AC-3-4: schema-invalid content returns error and does not persist findings.json.
+    result = _seed_typed_findings(layout, "team-bad", [{"statement": "x", "severity": "not-a-severity"}])
+    assert result["status"] == "error"
+    assert not layout.findings_json_path("team-bad").exists()
+
+
+def test_read_falls_back_to_markdown_when_no_json(layout: TeamsLayout) -> None:
+    # AC-4-2 / AC-7-4: only findings.md present -> markdown fallback marked as such.
+    _write_team(layout, "team-md", "# Findings\ndetail here\n", {"status": "done"})
+    ctx = _make_context(layout)
+    result = json.loads(teams.read_team_findings.__wrapped__(tool_context=ctx, team_id="team-md"))
+    assert result["status"] == "ok"
+    assert result["source"] == "markdown"
+    assert "detail here" in result["findings"]
+
+
+def test_read_falls_back_on_corrupt_json(layout: TeamsLayout) -> None:
+    # AC-4-4 / AC-7-4: corrupt findings.json -> degrade to markdown, never raise.
+    _write_team(layout, "team-corrupt", "# Findings\nmd body\n", None)
+    layout.findings_json_path("team-corrupt").write_text("{ this is not valid json ]")
+    ctx = _make_context(layout)
+    result = json.loads(teams.read_team_findings.__wrapped__(tool_context=ctx, team_id="team-corrupt"))
+    assert result["status"] == "ok"
+    assert result["source"] == "markdown"
+    assert "md body" in result["findings"]
+
+
+def test_read_list_reports_typed_presence(layout: TeamsLayout) -> None:
+    # AC-4-3: no-team_id listing reports typed presence + count without dropping keys.
+    _seed_typed_findings(layout, "team-typed", [{"statement": "note", "severity": "low"}])
+    layout.findings_path("team-typed").write_text("# md\n")
+    _write_team(layout, "team-plain", "# only md\n", {"status": "done"})
+    ctx = _make_context(layout)
+    result = json.loads(teams.read_team_findings.__wrapped__(tool_context=ctx))
+    by_id = {t["team_id"]: t for t in result["teams"]}
+    assert by_id["team-typed"]["has_typed_findings"] is True
+    assert by_id["team-typed"]["typed_finding_count"] == 1
+    assert by_id["team-typed"]["has_findings"] is True  # existing key preserved
+    assert by_id["team-plain"]["has_typed_findings"] is False
+    assert by_id["team-plain"]["typed_finding_count"] == 0
+    assert "findings_lines" in by_id["team-plain"]  # existing key preserved

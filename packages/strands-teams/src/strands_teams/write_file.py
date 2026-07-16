@@ -16,11 +16,14 @@ hardcoded ``.code-context`` check to the layout's ``output_root``.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
+from pydantic import ValidationError as PydanticValidationError
 from strands import tool
 
+from .evidence_gate import gate_findings
+from .findings_io import coerce_findings, serialize_findings
 from .security import ValidationError, confine_write_path
 
 if TYPE_CHECKING:
@@ -83,3 +86,75 @@ def make_write_file(layout: TeamsLayout) -> DecoratedFunctionTool:
         )
 
     return write_file
+
+
+def make_write_findings(layout: TeamsLayout, team_id: str) -> DecoratedFunctionTool:
+    """Build a ``write_findings`` tool that persists typed findings for one team.
+
+    The returned tool validates its input against the :class:`~strands_teams.models.Finding`
+    schema, serializes the collection to the team's ``findings.json`` (via
+    :meth:`~strands_teams.layout.TeamsLayout.findings_json_path`), and flags any
+    ``blocking=True`` finding that lacks evidence through the shared evidence gate
+    (AC-3-2, AC-3-4, AC-5-2). It closes over ``layout`` and ``team_id`` so it needs
+    no module-level state and writes only inside the run's team directory.
+
+    Args:
+        layout: The run's layout; the sidecar path derives from it.
+        team_id: The team whose ``findings.json`` this tool writes.
+
+    Returns:
+        A decorated ``write_findings`` tool object.
+    """
+
+    @tool(name="write_findings")
+    def write_findings(findings: list[dict[str, Any]]) -> str:
+        """Write this team's typed findings to its ``findings.json`` sidecar.
+
+        Call this once, as the LAST agent, IN ADDITION to writing the human
+        ``findings.md``. Each finding is a JSON object with these keys:
+
+        - ``statement`` (str, required): the finding in one or two sentences.
+        - ``severity`` (str, required): one of ``info``/``low``/``medium``/``high``/``critical``.
+        - ``blocking`` (bool): must be resolved before acceptance (default false).
+          A blocking finding MUST carry at least one ``evidence`` ref.
+        - ``disposition`` (str): ``open``/``acknowledged``/``remediated``/
+          ``accepted_risk``/``rejected``/``superseded`` (default ``open``).
+        - ``affected_artifacts`` (list[str]): paths/ids the finding is about.
+        - ``evidence`` (list): each ``{"type": one of file_line|test|command|artifact|url|log,
+          "uri": "src/auth.py:42", "detail": "optional note"}``.
+        - ``confidence`` (float in [0,1], default 0.5).
+        - ``created_by`` (str): your team/agent name.
+
+        Args:
+            findings: The list of finding objects to persist.
+
+        Returns:
+            JSON with ``status``, absolute ``path``, ``count``, and an
+            ``evidence_gate`` summary flagging any blocking finding without
+            evidence. On a schema violation, ``status`` is ``"error"`` and the
+            file is not written.
+        """
+        try:
+            parsed = coerce_findings(findings)
+        except PydanticValidationError as e:
+            return json.dumps({"status": "error", "message": f"findings failed schema validation: {e}"})
+
+        path = layout.findings_json_path(team_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            path.write_text(serialize_findings(parsed), encoding="utf-8")
+        except OSError as e:
+            return json.dumps({"status": "error", "message": str(e)})
+
+        gate = gate_findings(parsed)
+        logger.info(f"write_findings: wrote {len(parsed)} findings for {team_id} to {path}")
+        return json.dumps(
+            {
+                "status": "success",
+                "path": str(path),
+                "count": len(parsed),
+                "evidence_gate": gate,
+            },
+        )
+
+    return write_findings

@@ -11,8 +11,13 @@ You have five team tools:
   a confined `write_file` tool is auto-added to every agent. Dispatch teams for
   independent areas in the same turn so they run in parallel.
 - `read_team_findings(team_id=None)` — list all teams (when `team_id` is omitted)
-  or read one team's findings. After reading, cross-reference: signals reported by
-  multiple independent teams are high-confidence; divergent signals need follow-up.
+  or read one team's findings. For a single team it returns the typed `findings`
+  (severity/evidence/`evidence_gate`) AND, when present, the full `markdown`
+  narrative (plus `findings_path`) — use the typed findings to cross-reference and
+  act on evidence gaps, and the `markdown` (or `read_file_bounded` on
+  `findings_path`) as the rich source for bundle synthesis. After reading,
+  cross-reference: signals reported by multiple independent teams are
+  high-confidence; divergent signals need follow-up.
 - `write_artifact(area, content, is_executive_summary=False)` — write a per-area
   narrative artifact, or the executive summary. All diagrams MUST be mermaid
   code-fenced blocks, never ASCII art.

@@ -178,9 +178,13 @@ _FAIL_FAST_EXEMPT: frozenset[str] = frozenset(
 # the findings format. Ported from the pre-split team-tools module.
 # ---------------------------------------------------------------------------
 _FINDINGS_FORMAT_DIRECTIVE = (
-    "Write detailed findings in markdown with clear sections. "
+    "Write detailed findings in markdown with clear sections (findings.md via write_file). "
     "Include file:line references for every claim. "
-    "Use mermaid code-fenced diagrams (never ASCII art) for call flows and architecture."
+    "Use mermaid code-fenced diagrams (never ASCII art) for call flows and architecture. "
+    "ALSO emit the same findings as typed objects via the write_findings tool (findings.json): "
+    "each with statement, severity (info|low|medium|high|critical), blocking, disposition, "
+    "affected_artifacts, evidence[] (type + uri, e.g. file_line 'src/x.py:42'), confidence, created_by. "
+    "Every blocking finding must carry at least one evidence ref."
 )
 
 # ---------------------------------------------------------------------------

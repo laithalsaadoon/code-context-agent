@@ -45,8 +45,12 @@ line-length = 120
 indent-width = 4
 target-version = "py313"
 exclude = [".git", ".venv", "__pycache__", "build", "dist", ".ruff_cache"]
-# Workspace source roots so isort classifies both packages as first-party.
-src = ["packages/strands-teams/src", "packages/code-context-agent/src"]
+# Workspace source roots so isort classifies all packages as first-party.
+src = [
+    "packages/strands-teams/src",
+    "packages/strands-teams-runtimes/src",
+    "packages/code-context-agent/src",
+]
 
 [tool.ruff.lint]
 select = [
@@ -117,7 +121,7 @@ convention = "google"
 max-complexity = 10  # Enforce complexity limit after refactoring
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**/*.py" = ["D", "S101", "ARG", "PLR2004"]
+"**/tests/**/*.py" = ["D", "S101", "S105", "S106", "ARG", "PLR2004", "PT018", "TC001", "TC002", "TC003"]
 "**/__init__.py" = ["F401", "RUF022"]  # Allow unused imports and unsorted __all__ in init files
 "packages/code-context-agent/src/code_context_agent/tools/**/*.py" = ["PLR2004", "PLR0911", "PLR0912", "PLR0915", "C901", "SIM102", "SIM108"]  # Allow magic numbers, complexity, and dispatcher patterns in tools
 
@@ -147,6 +151,7 @@ python-version = "3.13"
 [tool.ty.src]
 include = [
     "packages/strands-teams/src",
+    "packages/strands-teams-runtimes/src",
     "packages/code-context-agent/src",
 ]
 exclude = []
@@ -172,7 +177,7 @@ skips = [
 
 [tool.coverage.run]
 branch = true
-source = ["code_context_agent", "strands_teams"]
+source = ["code_context_agent", "strands_teams", "strands_teams_runtimes"]
 omit = [
     "*/tests/*",
     "*/__main__.py",
@@ -202,6 +207,7 @@ output = "coverage.xml"
 [tool.pytest.ini_options]
 testpaths = [
     "packages/strands-teams/tests",
+    "packages/strands-teams-runtimes/tests",
     "packages/code-context-agent/tests",
 ]
 # Both packages ship a top-level ``tests`` package; the default ``prepend``
@@ -223,5 +229,6 @@ partial-match = true
 ignore-packages = [
     "code-context-agent",
     "strands-teams",
+    "strands-teams-runtimes",
     "docutils",  # Triple-licensed BSD/GPL/Public Domain — usable under BSD
 ]

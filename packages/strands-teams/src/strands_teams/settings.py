@@ -105,5 +105,49 @@ class TeamsSettings(BaseSettings):
         description="Max seconds per agent node within a team (full mode)",
     )
 
+    # Durable lead loop (Phase 5 / spec 006)
+    budget_threshold_usd: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Cumulative-cost bound (USD) for the durable lead loop; when recorded resource "
+            "usage crosses it, should_replan fires budget.threshold_exceeded. 0 disables the "
+            "cumulative-cost trigger (an explicit budget.threshold_exceeded event still fires)."
+        ),
+    )
+    max_lead_iterations: int = Field(
+        default=8,
+        ge=1,
+        le=100,
+        description="Max decompose→…→integrate iterations run_goal executes before terminating (AC-5-6).",
+    )
+
+    # Authority gates + policy engine (Phase 6 / spec 007)
+    policy_signing_key: str = Field(
+        default="",
+        description=(
+            "Signing key the PolicyEngine uses to mint/verify ApprovalToken signatures (spec 007 "
+            "AC-1-3/AC-1-4). An empty key means no run-configured key; the engine treats every token as "
+            "signature-invalid (absent), so approvals must be minted with an explicit key to count."
+        ),
+    )
+    required_approvals: int = Field(
+        default=1,
+        ge=0,
+        le=16,
+        description=(
+            "Number of valid, non-expired, signature-verified, revision-bound ApprovalTokens a "
+            "consequential transition requires before the PolicyEngine allows it (spec 007 AC-3-4)."
+        ),
+    )
+    human_gated_transition_kinds: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Transition kinds that are human-gated: the PolicyEngine emits a pending HumanDecision and "
+            "denies with failed_gate='human_required' rather than letting the model self-approve (spec 007 "
+            "AC-4-1). Empty means no kind is human-gated."
+        ),
+    )
+
     # Telemetry
     otel_disabled: bool = Field(default=True, description="Disable OpenTelemetry tracing")

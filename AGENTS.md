@@ -5,6 +5,8 @@ agent-teams framework on strands-agents, and **`code-context-agent`**, a CLI use
 case that analyzes codebases and produces structured context documentation for
 AI coding assistants.
 
+> Prior ERPAVal lessons live in [`.erpaval/INDEX.md`](.erpaval/INDEX.md); grep `.erpaval/solutions/**` before starting non-trivial work.
+
 ## Architecture
 
 Two packages under `packages/`, split along the framework/use-case seam:

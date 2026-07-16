@@ -29,6 +29,7 @@ To avoid a hard dependency in the wrong direction, :class:`ToolDisplayHook` and
 from __future__ import annotations
 
 import json as _json
+import re
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from loguru import logger
@@ -49,6 +50,14 @@ if TYPE_CHECKING:
 
 _MAX_OUTPUT_SIZE = 100_000
 
+# Word tokenizer for acceptance-criteria coverage. A criterion is "covered" when a
+# majority of its significant tokens (len >= 4) appear in the produced artifacts +
+# findings corpus. Kept deliberately simple and deterministic (no LLM) so the
+# coverage gate is testable and cheap.
+_WORD_RE = re.compile(r"[a-z0-9]+")
+_MIN_TOKEN_LEN = 4
+_COVERAGE_THRESHOLD = 0.5
+
 # Core team-dispatch tool name. This is a framework-level tool (auto-provided by
 # strands_teams), not a domain literal, so it is fixed here per task §4.
 _DISPATCH_TEAM_TOOL = "dispatch_team"
@@ -67,6 +76,18 @@ DEFAULT_RESUME_TEMPLATE = (
     "3) Rewrite the artifact via write_artifact with richer content. "
     "4) Call score_narrative again to verify improvement. "
     "Focus on adding file:line references, cross-cutting insights, and surprising findings."
+)
+
+# Resume prompt used when the run's acceptance criteria are not yet covered by the
+# produced artifacts and findings. Placeholders: {pass_num}, {max_passes},
+# {uncovered_list}. A use case may override via ``coverage_resume_template``.
+DEFAULT_COVERAGE_RESUME_TEMPLATE = (
+    "[COVERAGE PASS {pass_num}/{max_passes}] "
+    "The following acceptance criteria are NOT yet covered by any artifact or "
+    "finding: {uncovered_list}. "
+    "For each uncovered criterion: investigate it (dispatch a team or read findings "
+    "as needed), then write or enrich the relevant artifact via write_artifact so the "
+    "criterion is explicitly addressed with file:line evidence."
 )
 
 
@@ -293,15 +314,29 @@ class FailFastHook(HookProvider):
 
 
 class ArtifactQualityHook(HookProvider):
-    """Triggers enrichment passes when artifact quality is below the rubric threshold.
+    """Triggers revision passes on weak rubric scores OR uncovered acceptance criteria.
 
-    After the coordinator finishes an invocation, scores every artifact under
-    ``layout.artifacts_dir()`` (matched by ``layout.artifact_glob()``) with the
-    shared ``rubric.score`` (AC-3-3). If any artifact needs revision, sets
-    ``event.resume`` (verified writable on ``AfterInvocationEvent`` in strands
-    1.47.0) to re-invoke the coordinator with enrichment instructions. Capped at
-    ``max_passes`` to avoid infinite loops; once exhausted no further resume is
-    emitted (AC-3-6).
+    After the coordinator finishes an invocation this hook applies two gates
+    (AC-4-1):
+
+    1. **Rubric.** Scores every artifact under ``layout.artifacts_dir()`` (matched
+       by ``layout.artifact_glob()``) with the shared ``rubric.score``. An artifact
+       below the rubric's revision threshold is "weak".
+    2. **Acceptance-criteria coverage.** Reads every dispatched team's
+       ``acceptance_criteria`` from its ``contract.json`` (written by
+       ``dispatch_team``) and checks each criterion against the corpus of produced
+       artifacts + team findings. A criterion whose significant tokens are mostly
+       absent from that corpus is "uncovered".
+
+    If any artifact is weak OR any criterion is uncovered, the run needs revision
+    and ``event.resume`` (verified writable on ``AfterInvocationEvent`` in strands
+    1.47.0) is set to re-invoke the coordinator. An uncovered criterion forces a
+    revision **regardless of the rubric total** (AC-4-2) and the emitted resume
+    prompt names the uncovered criteria (AC-4-3). When all criteria are covered and
+    no artifact is weak, no resume is emitted (AC-4-4). When no acceptance criteria
+    were supplied for the run, the hook falls back to unchanged rubric-only behavior
+    (AC-4-5). The single ``max_passes`` budget caps both the rubric- and
+    coverage-driven resumes combined (AC-4-6).
     """
 
     def __init__(  # noqa: D107
@@ -310,45 +345,143 @@ class ArtifactQualityHook(HookProvider):
         rubric: NarrativeRubric,
         max_passes: int = 2,
         resume_template: str = DEFAULT_RESUME_TEMPLATE,
+        coverage_resume_template: str = DEFAULT_COVERAGE_RESUME_TEMPLATE,
     ) -> None:
         self._layout = layout
         self._rubric = rubric
         self._max_passes = max_passes
         self._resume_template = resume_template
+        self._coverage_resume_template = coverage_resume_template
         self._pass_count = 0
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register the artifact-quality callback."""
         registry.add_callback(AfterInvocationEvent, self._check_artifact_quality)
 
-    def _check_artifact_quality(self, event: Any, **kwargs: Any) -> None:
-        """Score artifacts after an invocation and resume the agent if any are weak."""
-        if self._pass_count >= self._max_passes:
-            return  # Budget exhausted (AC-3-6)
+    def _score_artifacts(self) -> tuple[list[tuple[str, float]], float, list[str]]:
+        """Score every artifact; return ``(weak, avg, artifact_texts)``.
 
+        ``weak`` lists ``(area, total)`` for artifacts below the revision
+        threshold, ``avg`` is the mean total, and ``artifact_texts`` is every
+        artifact's raw text (reused as part of the coverage corpus).
+        """
         artifacts_dir = self._layout.artifacts_dir()
         if not artifacts_dir.exists():
-            return
-
-        artifact_files = list(artifacts_dir.glob(self._layout.artifact_glob()))
-        if not artifact_files:
-            return
+            return [], 0.0, []
 
         totals: list[float] = []
         weak: list[tuple[str, float]] = []
-        for path in artifact_files:
-            report = self._rubric.score(path.read_text())
+        texts: list[str] = []
+        for path in artifacts_dir.glob(self._layout.artifact_glob()):
+            text = path.read_text()
+            texts.append(text)
+            report = self._rubric.score(text)
             totals.append(report.total)
             if report.needs_revision:
                 weak.append((self._layout.area_from_artifact(path), report.total))
 
         avg = sum(totals) / len(totals) if totals else 0.0
+        return weak, avg, texts
 
-        if not weak:
-            logger.info(f"Artifact quality check passed: avg={avg:.1f} (threshold {self._rubric.revision_threshold})")
+    def _acceptance_criteria(self) -> list[str]:
+        """Collect every dispatched team's acceptance criteria (deduped, ordered).
+
+        Reads each team's ``contract.json`` (written by ``dispatch_team``) from the
+        run's teams directory. Never raises: a missing dir or malformed contract is
+        skipped so a contract I/O problem cannot mask itself as "no criteria".
+        """
+        teams_dir = self._layout.teams_dir()
+        if not teams_dir.exists():
+            return []
+        seen: set[str] = set()
+        criteria: list[str] = []
+        for contract_path in sorted(teams_dir.glob(self._layout.contract_glob())):
+            try:
+                data = _json.loads(contract_path.read_text())
+            except (_json.JSONDecodeError, OSError):
+                continue
+            for c in data.get("acceptance_criteria", []) or []:
+                if isinstance(c, str) and c not in seen:
+                    seen.add(c)
+                    criteria.append(c)
+        return criteria
+
+    def _findings_corpus(self) -> list[str]:
+        """Gather every team's findings text (markdown + typed statements) for coverage."""
+        teams_dir = self._layout.teams_dir()
+        if not teams_dir.exists():
+            return []
+        texts: list[str] = []
+        for team_dir in sorted(teams_dir.iterdir()):
+            if not team_dir.is_dir():
+                continue
+            md = team_dir / self._layout.findings_name
+            if md.exists():
+                try:
+                    texts.append(md.read_text())
+                except OSError:
+                    pass
+            js = team_dir / self._layout.findings_json_name
+            if js.exists():
+                try:
+                    texts.append(js.read_text())
+                except OSError:
+                    pass
+        return texts
+
+    @staticmethod
+    def _is_covered(criterion: str, corpus_tokens: set[str]) -> bool:
+        """Return True when a majority of a criterion's significant tokens appear in the corpus."""
+        tokens = {t for t in _WORD_RE.findall(criterion.lower()) if len(t) >= _MIN_TOKEN_LEN}
+        if not tokens:
+            return True  # No significant tokens to check — treat as covered.
+        matched = sum(1 for t in tokens if t in corpus_tokens)
+        return (matched / len(tokens)) >= _COVERAGE_THRESHOLD
+
+    def _uncovered_criteria(self, criteria: list[str], corpus: list[str]) -> list[str]:
+        """Return the criteria whose tokens are mostly absent from the corpus."""
+        corpus_tokens: set[str] = set()
+        for text in corpus:
+            corpus_tokens.update(_WORD_RE.findall(text.lower()))
+        return [c for c in criteria if not self._is_covered(c, corpus_tokens)]
+
+    def _check_artifact_quality(self, event: Any, **kwargs: Any) -> None:
+        """Resume the coordinator when artifacts are weak or acceptance criteria are uncovered."""
+        if self._pass_count >= self._max_passes:
+            return  # Budget exhausted, both triggers combined (AC-4-6, AC-3-6)
+
+        weak, avg, artifact_texts = self._score_artifacts()
+
+        # AC-4-1/AC-4-5: coverage only applies when criteria were supplied; with none,
+        # this stays [] and behavior is rubric-only exactly as before.
+        criteria = self._acceptance_criteria()
+        uncovered = self._uncovered_criteria(criteria, [*artifact_texts, *self._findings_corpus()]) if criteria else []
+
+        if not weak and not uncovered:
+            logger.info(
+                f"Artifact quality check passed: avg={avg:.1f} "
+                f"(threshold {self._rubric.revision_threshold}), "
+                f"{len(criteria)} criteria all covered",
+            )
             return
 
         self._pass_count += 1
+
+        # An uncovered criterion forces revision regardless of rubric total, and its
+        # resume names the uncovered criteria (AC-4-2, AC-4-3). Otherwise fall back to
+        # the rubric enrichment prompt for weak artifacts.
+        if uncovered:
+            uncovered_list = "; ".join(uncovered)
+            event.resume = self._coverage_resume_template.format(
+                pass_num=self._pass_count,
+                max_passes=self._max_passes,
+                uncovered_list=uncovered_list,
+            )
+            logger.info(
+                f"Coverage pass {self._pass_count} triggered: {len(uncovered)}/{len(criteria)} criteria uncovered",
+            )
+            return
+
         weak_list = ", ".join(f"{area} ({score:.1f})" for area, score in weak)
         event.resume = self._resume_template.format(
             pass_num=self._pass_count,
@@ -468,12 +601,102 @@ class JsonLogHook(HookProvider):
             )
 
 
+class PolicyGateDenied(RuntimeError):
+    """Raised by :class:`PolicyGateHook` to block a denied consequential tool call (AC-6-4)."""
+
+    def __init__(self, tool_name: str, verdict: Any) -> None:  # noqa: D107
+        self.tool_name = tool_name
+        self.verdict = verdict
+        gate = getattr(verdict, "failed_gate", None)
+        reason = getattr(verdict, "reason", "")
+        super().__init__(f"Policy gate '{gate}' blocked tool '{tool_name}': {reason}")
+
+
+class PolicyGateHook(HookProvider):
+    """Structurally blocks a denied consequential tool call before it runs (AC-6-4, §14.7).
+
+    On ``BeforeToolCallEvent`` for a tool whose name is in ``consequential_tools``,
+    the hook builds a :class:`~strands_teams.models.TransitionRequest` from the
+    tool input and the current actor, calls
+    :meth:`~strands_teams.policy.PolicyEngine.authorize_transition` (reading grants,
+    approvals, findings, and revision hashes from the event's ``invocation_state``
+    by reference — AC-3-7), and raises :class:`PolicyGateDenied` if the verdict is
+    ``allowed=False`` — so the action never executes without a valid revision-bound
+    approval and a clear blocking-finding slate (AC-6-2, AC-6-3). Non-consequential
+    tools pass straight through; the engine is present but, on a run that requests
+    no consequential transitions, is never invoked to deny (AC-7-5).
+
+    The transition kind, target revision, and presented tokens are read from the
+    tool input under conventional keys (``transition_kind``/``kind``,
+    ``target_revision_id``, ``presented_tokens``, ``consequential``); a use case
+    that names them differently supplies an ``input_mapper`` callable.
+    """
+
+    def __init__(
+        self,
+        engine: Any,
+        consequential_tools: frozenset[str],
+        *,
+        actor_of: Any = None,
+        input_mapper: Any = None,
+    ) -> None:
+        """Wire the gate to a policy engine and the set of consequential tools.
+
+        Args:
+            engine: The :class:`~strands_teams.policy.PolicyEngine` that issues verdicts.
+            consequential_tools: Tool names whose calls are gated.
+            actor_of: Optional callable mapping ``invocation_state`` to the actor id.
+            input_mapper: Optional callable ``(tool_name, args, invocation_state)`` ->
+                ``TransitionRequest`` for use cases that name inputs differently.
+        """
+        self._engine = engine
+        self._consequential = consequential_tools
+        self._actor_of = actor_of
+        self._input_mapper = input_mapper
+
+    def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
+        """Register the pre-tool authorization callback."""
+        registry.add_callback(BeforeToolCallEvent, self._authorize)
+
+    def _authorize(self, event: BeforeToolCallEvent, **kwargs: Any) -> None:
+        """Authorize a consequential tool call, raising to block it on a deny verdict."""
+        tool_name = event.tool_use.get("name", "")
+        if tool_name not in self._consequential:
+            return
+
+        from .models import TransitionRequest  # local import: core has no policy import at module load
+
+        args = event.tool_use.get("input", {})
+        if not isinstance(args, dict):
+            args = {}
+        invocation_state = getattr(event, "invocation_state", None) or {}
+
+        if self._input_mapper is not None:
+            transition = self._input_mapper(tool_name, args, invocation_state)
+        else:
+            actor = self._actor_of(invocation_state) if self._actor_of else str(args.get("actor", "coordinator"))
+            transition = TransitionRequest(
+                actor=actor,
+                kind=str(args.get("transition_kind") or args.get("kind") or tool_name),
+                target_revision_id=str(args.get("target_revision_id", "")),
+                consequential=bool(args.get("consequential", True)),
+                presented_tokens=list(args.get("presented_tokens", [])),
+            )
+
+        verdict = self._engine.authorize_transition(transition, invocation_state)
+        if not verdict.allowed:
+            logger.warning(f"PolicyGateHook blocked '{tool_name}': {verdict.failed_gate} — {verdict.reason}")
+            raise PolicyGateDenied(tool_name, verdict)
+
+
 def create_all_hooks(
     use_case: Any,
     *,
     full_mode: bool = False,
     state: TeamDisplayState | None = None,
     quiet: bool = False,
+    policy_engine: Any = None,
+    consequential_tools: frozenset[str] | None = None,
 ) -> list[HookProvider]:
     """Assemble the hook providers for a run from a ``UseCase`` (AC-3-5).
 
@@ -497,6 +720,10 @@ def create_all_hooks(
         state: A display state (duck-typed :class:`TeamDisplayState`). Ignored
             when ``quiet`` is True.
         quiet: If True, use :class:`JsonLogHook` instead of the display hooks.
+        policy_engine: Optional :class:`~strands_teams.policy.PolicyEngine`; when
+            given together with ``consequential_tools``, a :class:`PolicyGateHook`
+            is added to block denied consequential tool calls before they run.
+        consequential_tools: Tool names gated by the policy engine (AC-6-4).
 
     Returns:
         A flat list of :class:`HookProvider` instances to register on the agent.
@@ -513,6 +740,9 @@ def create_all_hooks(
     ]
     if full_mode:
         hooks.append(FailFastHook(use_case.fail_fast_exempt, exempt_prefixes))
+
+    if policy_engine is not None and consequential_tools:
+        hooks.append(PolicyGateHook(policy_engine, consequential_tools))
 
     if quiet:
         hooks.append(JsonLogHook())
