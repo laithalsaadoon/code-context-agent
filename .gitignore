@@ -675,3 +675,11 @@ ui/src/routeTree.gen.ts
 .code-context/
 docs/.packets/
 docs/.repomix/
+docs/analysis/
+docs/behavior/
+docs/diagrams/
+docs/insights/
+docs/README.md
+docs/architecture/data-flow.md
+docs/architecture/module-map.md
+docs/architecture/system-overview.md
