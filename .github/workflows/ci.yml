@@ -31,11 +31,11 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --locked --all-groups
       - name: Ruff check
-        run: uv run ruff check src/
+        run: uv run ruff check packages/
       - name: Ruff format check
-        run: uv run ruff format --check src/
+        run: uv run ruff format --check packages/
       - name: Type check
-        run: uv run ty check src/
+        run: uv run ty check packages/
 
   test:
     runs-on: ubuntu-latest
@@ -56,7 +56,8 @@ jobs:
         run: |
           uv run pytest \
             --junitxml=report.xml \
-            --cov=src/code_context_agent \
+            --cov=code_context_agent \
+            --cov=strands_teams \
             --cov-report=term-missing:skip-covered \
             --cov-report=xml:coverage.xml \
             --cov-branch

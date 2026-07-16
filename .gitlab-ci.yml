@@ -54,11 +54,11 @@ lint:
     - apt-get update && apt-get install -y --no-install-recommends $RUNTIME_PKGS
   script:
     # Generate Code Quality report (always, even if ruff finds issues)
-    - uv run ruff check --output-format=gitlab --output-file=gl-code-quality-report.json src/ || true
+    - uv run ruff check --output-format=gitlab --output-file=gl-code-quality-report.json packages/ || true
     # Gating checks (fail the pipeline on errors)
-    - uv run ruff check src/
-    - uv run ruff format --check src/
-    - uv run ty check src/
+    - uv run ruff check packages/
+    - uv run ruff format --check packages/
+    - uv run ty check packages/
   artifacts:
     when: always
     reports:
@@ -81,13 +81,11 @@ test:
     GIT_DEPTH: 0
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends git nodejs npm $RUNTIME_PKGS
-    - npm install -g pnpm
-    - pnpm --dir ui install --frozen-lockfile
-    - pnpm --dir ui build
   script:
     - uv run pytest
         --junitxml=report.xml
-        --cov=src/code_context_agent
+        --cov=code_context_agent
+        --cov=strands_teams
         --cov-report=term-missing:skip-covered
         --cov-report=xml:coverage.xml
         --cov-branch
@@ -135,7 +133,7 @@ sast:semgrep:
         --gitlab-sast
         --gitlab-sast-output gl-sast-semgrep.json
         --error
-        src/
+        packages/
         || true
   artifacts:
     when: always
@@ -149,8 +147,8 @@ sast:bandit:
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends $RUNTIME_PKGS curl
   script:
-    - uv run bandit -c pyproject.toml -r src/ -f json -o bandit-report.json --exit-zero
-    - uv run bandit -c pyproject.toml -r src/ -f sarif -o bandit.sarif --exit-zero
+    - uv run bandit -c pyproject.toml -r packages/ -f json -o bandit-report.json --exit-zero
+    - uv run bandit -c pyproject.toml -r packages/ -f sarif -o bandit.sarif --exit-zero
     # Convert SARIF to GitLab SAST format; skip gracefully if converter unavailable
     - |
       curl -fsSL -o /usr/local/bin/sarif-converter \
@@ -434,7 +432,7 @@ build-docs:
       changes:
         - docs/**/*
         - mkdocs.yml
-        - src/**/*.py
+        - packages/**/*.py
 
 # =============================================================================
 # GitLab Pages Deployment

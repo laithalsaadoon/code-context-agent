@@ -78,11 +78,18 @@ plugins:
         'tools/clones.md': 'tools/overview.md'
         'tools/storage.md': 'tools/overview.md'
         'design/progressive-disclosure.md': 'architecture/progressive-disclosure.md'
+        # Removed in the strands-teams workspace split (v4): verdict, ci-init,
+        # the FastMCP server, and the multi-repo registry no longer ship.
+        'guide/verdict.md': 'guide/output.md'
+        'guide/ci-init.md': 'guide/output.md'
+        'tools/mcp.md': 'tools/overview.md'
+        'tools/registry.md': 'tools/overview.md'
   - mkdocstrings:
       handlers:
         python:
           paths:
-            - src
+            - packages/strands-teams/src
+            - packages/code-context-agent/src
           options:
             docstring_style: google
             inherited_members: true
@@ -122,8 +129,6 @@ plugins:
           - getting-started/full-mode.md
         User Guide:
           - guide/output.md
-          - guide/verdict.md
-          - guide/ci-init.md
         Architecture:
           - architecture/overview.md
           - architecture/coordinator.md
@@ -137,9 +142,7 @@ plugins:
           - tools/search.md
           - tools/git.md
           - tools/shell.md
-          - tools/mcp.md
           - tools/indexer.md
-          - tools/registry.md
         Security:
           - security/overview.md
         Support:
@@ -201,8 +204,6 @@ nav:
       - Full Mode: getting-started/full-mode.md
   - User Guide:
       - Understanding Output: guide/output.md
-      - Verdict Command: guide/verdict.md
-      - CI Integration: guide/ci-init.md
   - Architecture:
       - Overview: architecture/overview.md
       - Coordinator Pipeline: architecture/coordinator.md
@@ -216,9 +217,7 @@ nav:
       - BM25 Search: tools/search.md
       - Git History: tools/git.md
       - Shell: tools/shell.md
-      - MCP Server: tools/mcp.md
       - Deterministic Indexer: tools/indexer.md
-      - Multi-Repo Registry: tools/registry.md
   - Security:
       - Overview: security/overview.md
   - Troubleshooting: troubleshooting.md
@@ -239,6 +238,7 @@ nav:
       - "0012: Swarm Pipeline (superseded)": adr/0012-strands-swarm-multi-agent.md
       - "0013: Coordinator Pipeline": adr/0013-coordinator-team-dispatch.md
       - "0014: GitNexus Intelligence": adr/0014-gitnexus-code-intelligence.md
+      - "0015: strands-teams Workspace Split": adr/0015-strands-teams-workspace-split.md
   - Code Reference: reference/
   - Development:
       - Contributing: development/guide.md

@@ -669,3 +669,9 @@ src/code_context_agent/ui/
 ui/src/routeTree.gen.ts
 
 .gitnexus
+.erpaval/sessions/
+
+# Generated analysis + doc-tree artifacts
+.code-context/
+docs/.packets/
+docs/.repomix/
