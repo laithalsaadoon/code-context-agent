@@ -49,6 +49,16 @@ quality hook — none caught by 261 passing tests, all born from concurrent wave
 each testing against its own fake. The mandatory fresh-reviewer gate is what
 surfaced them; a cheaper standing defense is a seam contract test per interface.
 
+**Reconfirmed (ASTR six-phase build, session-8c56b2):** parallel reviewers again
+found the same class of gap that green tests missed — a blocking-finding grant
+enforced only on the swarm SUCCESS path (a forbidden finding survived a timeout),
+and a dispatch event double-emitted on the production path (double-counting
+budget) because the happy path was the only one tested. Lesson holds and
+generalizes: for any enforcement/side-effect that must hold on EVERY path, write
+the failure/crash-path test explicitly — the happy-path test certifies nothing
+about the except/timeout branch. Also: when a phase splits work across N sub-tasks,
+a value that must be produced "on every path" is exactly where they diverge.
+
 # Example
 
 ```python
