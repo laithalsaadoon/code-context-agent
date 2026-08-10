@@ -1,18 +1,20 @@
 # Tools Overview
 
-code-context-agent ships with **27 built-in tools** plus runtime MCP tools from GitNexus (6+) and context7 (2), organized into 7 categories. An **11-tool MCP server** is also available for external AI clients. The Strands coordinator agent selects and orchestrates tools automatically based on the codebase being analyzed.
+code-context-agent ships with **26 built-in tools** plus runtime MCP tools from GitNexus (6+) and context7 (2), organized into 6 categories. The Strands coordinator agent selects and orchestrates tools automatically based on the codebase being analyzed.
+
+The team-orchestration tools (`dispatch_team`, `read_team_findings`, `write_bundle`, `score_narrative`, `enrich_bundle`) are provided by the [`strands-teams`](https://github.com/theagenticguy/code-context-agent) framework package; the discovery, search, git, and shell tools live in the `code-context-agent` use-case package.
 
 ## Tool Inventory
 
 | Category | Count | Source | Purpose |
 |----------|-------|--------|---------|
-| [**Coordinator**](#coordinator) | 6 | `tools/coordinator_tools.py` | Team dispatch, findings, bundles, scoring |
+| [**Coordinator**](#coordinator) | 5 | `strands_teams.teams` | Team dispatch, findings, bundles, scoring |
 | [**Discovery**](discovery.md) | 11 | `tools/discovery.py` | File inventory, bundling, search, orientation |
 | [**Search**](search.md) | 1 | `tools/search/tools.py` | BM25-ranked full-text search |
 | [**Git**](git.md) | 7 | `tools/git.py` | Temporal analysis, coupling, authorship |
 | [**Shell**](shell.md) | 1 | `tools/shell_tool.py` | Security-hardened command execution |
-| **Orchestration** | 1 | `strands_tools.graph` | Multi-agent DAG execution |
-| **Built-in total** | **27** | | |
+| **Planning** | 1 | `usecase.py` | `read_heuristic_summary` domain tool |
+| **Built-in total** | **26** | | |
 | **GitNexus MCP** | 6+ | Runtime via `npx gitnexus mcp` | Structural code intelligence |
 | **context7 MCP** | 2 | Runtime via `npx @upstash/context7-mcp` | Library documentation lookup |
 
@@ -20,16 +22,16 @@ All tool inputs are validated for security. Path parameters pass through travers
 
 ## Coordinator {: #coordinator }
 
-Six tools used exclusively by the coordinator agent to manage multi-agent team workflows. These are not available to team agents.
+Five framework tools (from `strands-teams`) used by the coordinator agent to manage multi-agent team workflows, plus the `read_heuristic_summary` planning tool supplied by the use case.
 
 | Tool | Description |
 |------|-------------|
 | `dispatch_team` | Dispatch a specialist Swarm team to investigate a codebase area |
 | `read_team_findings` | Read findings from dispatched teams (list all or read specific) |
 | `write_bundle` | Write narrative bundles (`BUNDLE.{area}.md`) or `CONTEXT.md` |
-| `read_heuristic_summary` | Read the pre-computed heuristic summary from the deterministic indexer |
 | `score_narrative` | Score a bundle's quality on specificity, structure, diagrams, depth, cross-references |
 | `enrich_bundle` | Read an existing bundle with feedback for chain-of-density enrichment |
+| `read_heuristic_summary` | (use-case planning tool) Read the pre-computed heuristic summary from the deterministic indexer |
 
 ## Discovery
 

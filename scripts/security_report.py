@@ -23,7 +23,7 @@ def _run(cmd: list[str], *, check: bool = False) -> subprocess.CompletedProcess[
     return subprocess.run(cmd, capture_output=True, text=True, check=check)
 
 
-def run_bandit(src: str = "src/") -> list[dict]:
+def run_bandit(src: str = "packages/") -> list[dict]:
     """Run bandit and return findings."""
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         tmp = f.name
@@ -103,7 +103,7 @@ def run_osv_scanner() -> list[dict]:
     return findings
 
 
-def run_semgrep(src: str = "src/") -> list[dict]:
+def run_semgrep(src: str = "packages/") -> list[dict]:
     """Run semgrep and return findings."""
     result = _run(
         ["semgrep", "scan", "--config", "auto", "--config", "p/owasp-top-ten", "--json", "--quiet", src],
@@ -174,6 +174,8 @@ def run_license_check() -> list[dict]:
             "--partial-match",
             "--ignore-packages",
             "code-context-agent",
+            "--ignore-packages",
+            "strands-teams",
             "--ignore-packages",
             "docutils",
             "--format=json",

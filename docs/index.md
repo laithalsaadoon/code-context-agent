@@ -29,8 +29,8 @@
 | **Security hardened** | Shell allowlist, input validation, path traversal prevention, CI security pipeline |
 | **Full mode** | `--full` for exhaustive analysis with extended limits and fail-fast errors |
 | **Deterministic indexer** | `index` command runs 16-step pipeline without LLM calls (fast, cheap) |
-| **MCP server** | 11 tools: analysis, git evolution, static findings, review classification, change verdicts |
-| **Multi-agent teams** | Coordinator dispatches parallel Swarm teams with GitNexus + git + discovery tools |
+| **Two-package workspace** | Reusable `strands-teams` framework + `code-context-agent` use case |
+| **Multi-agent teams** | Coordinator dispatches parallel native Swarm teams with GitNexus + git + discovery tools |
 
 ---
 
@@ -38,12 +38,11 @@
 
 ```mermaid
 flowchart TD
-    A[CLI: cyclopts] --> B[run_analysis]
+    A[CLI: cyclopts] --> B[analyze command]
     A --> IDX[index command]
-    A --> VIZ[viz command]
-    IDX --> IDXP[Deterministic Indexer<br/>21 steps]
+    A --> CHK[check command]
+    IDX --> IDXP[Deterministic Indexer<br/>16 steps]
     IDXP --> HS[heuristic_summary.json<br/>bridge artifact]
-    VIZ --> VIZS[Web Visualizer / D3.js]
     B --> COORD[Coordinator Agent<br/>reads heuristic_summary.json]
     COORD --> DT[dispatch_team<br/>parallel specialist teams]
     DT --> T1[Team 1]

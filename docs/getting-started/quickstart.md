@@ -33,11 +33,8 @@ code-context-agent analyze . --debug
 # Exhaustive analysis (no size limits, all algorithms)
 code-context-agent analyze . --full
 
-# Compute a change verdict for a PR (no LLM, <60s)
-code-context-agent verdict --base main --exit-code
-
-# Generate CI/CD workflow files for automated verdicts
-code-context-agent ci-init . --provider github
+# Regenerate bundles from existing team findings (skip indexing + dispatch)
+code-context-agent analyze . --bundles-only
 
 # Verify external tool dependencies
 code-context-agent check
@@ -93,29 +90,6 @@ For a fast, deterministic index without AI narration:
 ```bash
 # Build the index deterministically
 code-context-agent index .
-
-# Then expose it via MCP
-code-context-agent serve
 ```
 
 See the [Deterministic Indexer documentation](../tools/indexer.md) for details.
-
-## MCP Server
-
-After analysis, you can expose the results to coding agents via MCP:
-
-=== "stdio (Claude Code / Claude Desktop)"
-
-    ```bash
-    code-context-agent serve
-    ```
-
-=== "HTTP (networked access)"
-
-    ```bash
-    code-context-agent serve --transport http --port 8000
-    ```
-
-The MCP server provides tools for kicking off analyses (`start_analysis`, `check_analysis`), git evolution data (`git_evolution`), static scan findings (`static_scan_findings`), heuristic summaries (`heuristic_summary`), change verdicts (`change_verdict`), review classification (`review_classification`), risk trends (`risk_trend`), consistency checks (`consistency_check`), cross-repo impact (`cross_repo_impact`), and multi-repo discovery (`list_repos`). It also exposes analysis artifacts as MCP resources.
-
-See the [MCP Server documentation](../tools/mcp.md) for full details and client configuration.

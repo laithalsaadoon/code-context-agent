@@ -1,0 +1,44 @@
+[build-system]
+requires = ["uv_build>=0.10.5,<0.12.0"]
+build-backend = "uv_build"
+
+[project]
+name = "code-context-agent"
+version = "3.1.2"
+description = "A CLI tool for code context analysis"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.13"
+dependencies = [
+    "cyclopts>=4.6.0",
+    "jinja2>=3.1.6",
+    "loguru>=0.7.3",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "rank-bm25>=0.2.2",
+    "rich>=14.3.3",
+    "strands-agents>=1.47",
+    "strands-agents-tools>=0.2.21",
+    "strands-teams",
+    "ty>=0.0.18",
+]
+
+[project.scripts]
+code-context-agent = "code_context_agent.cli:app"
+
+[tool.uv.sources]
+strands-teams = { workspace = true }
+
+# =============================================================================
+# Commitizen Configuration (Conventional Commits)
+# =============================================================================
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "pep621"
+version_files = [
+    "packages/code-context-agent/src/code_context_agent/__init__.py:__version__"
+]
+tag_format = "v$version"
+update_changelog_on_bump = true
+version_scheme = "semver"

@@ -95,32 +95,20 @@ The analysis is **language-agnostic** at the core level. Ripgrep, git history, r
 
 ---
 
-### What is the MCP server for?
+### How do coding agents consume the output?
 
-The MCP (Model Context Protocol) server exposes code-context-agent's unique capabilities to AI coding assistants like Claude Code, Claude Desktop, and Cursor.
+`code-context-agent` writes its analysis to a `.code-context/` directory as
+plain markdown and JSON. AI coding assistants (Claude Code, Cursor, and others)
+consume those artifacts directly — point the assistant at `CONTEXT.md` as the
+entry point, and expand into the per-area `bundles/BUNDLE.{area}.md` files as
+needed. The structured `analysis_result.json` is available for programmatic
+consumption.
 
-Through the MCP server, an AI assistant can:
-
-- **Start and poll analysis** (`start_analysis`, `check_analysis`)
-- **Query git evolution data** -- hotspots, coupling, contributors (`git_evolution`)
-- **Read static scan findings** -- semgrep, typecheck, lint, complexity, dead code (`static_scan_findings`)
-- **Get a compact heuristic summary** of codebase metrics (`heuristic_summary`)
-- **Compute change verdicts** for PR review routing (`change_verdict`)
-- **Check review classification** with per-area risk profiles (`review_classification`)
-- **Track risk trends** over time (`risk_trend`)
-- **List registered repos** across the multi-repo registry (`list_repos`)
-
-Start the server:
-
-```bash
-# stdio transport (for Claude Code / Claude Desktop)
-code-context-agent serve
-
-# HTTP transport (for networked clients)
-code-context-agent serve --transport http --port 8000
-```
-
-See the [MCP Server](tools/mcp.md) documentation for full setup and tool reference.
+For live structural code intelligence (impact analysis, symbol context, execution
+flow tracing), the analysis relies on the external [GitNexus](https://www.npmjs.com/package/gitnexus)
+MCP server rather than a bundled server. The `serve` command and the built-in
+FastMCP server were removed in the workspace split (see
+[ADR-0015](adr/0015-strands-teams-workspace-split.md)).
 
 ---
 

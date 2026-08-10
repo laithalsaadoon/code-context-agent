@@ -23,23 +23,23 @@ install = "uv sync --all-groups"
 
 [tasks.lint]
 description = "Lint Python with ruff"
-run = "uvx ruff check src/"
+run = "uvx ruff check packages/"
 
 [tasks."lint:fix"]
 description = "Lint Python and auto-fix"
-run = "uvx ruff check src/ --fix"
+run = "uvx ruff check packages/ --fix"
 
 [tasks.format]
 description = "Format Python with ruff"
-run = "uvx ruff format src/"
+run = "uvx ruff format packages/"
 
 [tasks."format:check"]
 description = "Check Python formatting"
-run = "uvx ruff format --check src/"
+run = "uvx ruff format --check packages/"
 
 [tasks.typecheck]
 description = "Type check Python with ty"
-run = "uvx ty check src/"
+run = "uvx ty check packages/"
 
 [tasks.test]
 description = "Run Python tests"
@@ -51,7 +51,7 @@ run = "uv run pytest -v"
 
 [tasks."test:coverage"]
 description = "Run Python tests with coverage"
-run = "uv run pytest --cov=src/code_context_agent --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml --cov-branch"
+run = "uv run pytest --cov=code_context_agent --cov=strands_teams --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml --cov-branch"
 
 # --- Shared meta-tasks ---
 
@@ -79,7 +79,7 @@ run = "betterleaks git --no-banner ."
 
 [tasks."security:sast"]
 description = "SAST scan with semgrep (auto + OWASP top 10)"
-run = "semgrep scan --config auto --config p/owasp-top-ten --exclude-rule python.flask.security.xss.audit.direct-use-of-jinja2.direct-use-of-jinja2 --error --quiet src/"
+run = "semgrep scan --config auto --config p/owasp-top-ten --exclude-rule python.flask.security.xss.audit.direct-use-of-jinja2.direct-use-of-jinja2 --error --quiet packages/"
 
 [tasks."security:bandit"]
 description = "SAST scan with bandit (fail on HIGH severity)"

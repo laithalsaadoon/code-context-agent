@@ -68,8 +68,6 @@ The primary output is `.code-context/heuristic_summary.json`, which summarizes a
 
 After indexing, you can:
 
-- Start the MCP server: `code-context-agent serve`
-- Query git evolution: `git_evolution(repo_path, analysis="hotspots")`
-- Read static findings: `static_scan_findings(repo_path)`
-- Get the summary: `heuristic_summary(repo_path)`
 - Run full analysis: `code-context-agent analyze .` (uses the index as input)
+- Inspect `heuristic_summary.json` and the other artifacts directly
+- Point an AI coding assistant at the generated `.code-context/` artifacts

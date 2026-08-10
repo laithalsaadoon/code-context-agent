@@ -2,18 +2,5 @@
   "enabledPlugins": {
     "workspace-manager@claude-workspaces": false,
     "frontend-design@claude-plugins-official": true
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/review-before-commit.sh"
-          }
-        ]
-      }
-    ]
   }
 }

@@ -1,34 +1,19 @@
-[build-system]
-requires = ["uv_build>=0.10.5,<0.12.0"]
-build-backend = "uv_build"
+# =============================================================================
+# uv workspace root (virtual project — no [project] table).
+#
+# This root declares the workspace members and hosts the repo-wide dev tooling
+# groups and shared tool configuration (ruff, ty, coverage, pytest, bandit,
+# pip-licenses). The two distributable packages live under packages/*:
+#   - packages/strands-teams      (import package: strands_teams)
+#   - packages/code-context-agent (import package: code_context_agent)
+# =============================================================================
 
-[project]
-name = "code-context-agent"
-version = "3.1.2"
-description = "A CLI tool for code context analysis"
-readme = "README.md"
-license = { text = "Apache-2.0" }
-requires-python = ">=3.13"
-dependencies = [
-    "cyclopts>=4.6.0",
-    "fastmcp>=3.0.2,<4",
-    "jinja2>=3.1.6",
-    "loguru>=0.7.3",
-    "pydantic>=2.12.5",
-    "pydantic-settings>=2.13.1",
-    "rank-bm25>=0.2.2",
-    "rich>=14.3.3",
-    "strands-agents>=1.27.0",
-    "strands-agents-tools>=0.2.21",
-    "ty>=0.0.18",
-]
-
-[project.scripts]
-code-context-agent = "code_context_agent.cli:app"
+[tool.uv.workspace]
+members = ["packages/*"]
 
 [dependency-groups]
 dev = [
-    "commitizen>=4.13.8",
+    "commitizen>=4.17.0",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
@@ -61,6 +46,12 @@ line-length = 120
 indent-width = 4
 target-version = "py313"
 exclude = [".git", ".venv", "__pycache__", "build", "dist", ".ruff_cache"]
+# Workspace source roots so isort classifies all packages as first-party.
+src = [
+    "packages/strands-teams/src",
+    "packages/strands-teams-runtimes/src",
+    "packages/code-context-agent/src",
+]
 
 [tool.ruff.lint]
 select = [
@@ -107,6 +98,7 @@ ignore = [
     "S603",    # Allow subprocess calls (needed for shell tool execution)
     "S607",    # Allow partial executable paths (sh -c pattern is safe)
     "PLR0913", # Allow many function arguments (tool function design)
+    "PLR0917", # Allow many positional arguments (tool function design)
     "PLW1510", # Allow subprocess.run without check (we handle errors)
     "ARG002",  # Allow unused method arguments (protocol interface compliance)
     "SIM105",  # Allow try-except-pass patterns (explicit is clearer)
@@ -131,9 +123,9 @@ convention = "google"
 max-complexity = 10  # Enforce complexity limit after refactoring
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["D", "S101", "ARG", "PLR2004"]
+"**/tests/**/*.py" = ["D", "S101", "S105", "S106", "ARG", "PLR2004", "PT018", "TC001", "TC002", "TC003"]
 "**/__init__.py" = ["F401", "RUF022"]  # Allow unused imports and unsorted __all__ in init files
-"src/code_context_agent/tools/**/*.py" = ["PLR2004", "PLR0911", "PLR0912", "PLR0915", "C901", "SIM102", "SIM108"]  # Allow magic numbers, complexity, and dispatcher patterns in tools
+"packages/code-context-agent/src/code_context_agent/tools/**/*.py" = ["PLR2004", "PLR0911", "PLR0912", "PLR0915", "C901", "SIM102", "SIM108"]  # Allow magic numbers, complexity, and dispatcher patterns in tools
 
 [tool.ruff.format]
 quote-style = "double"
@@ -159,7 +151,11 @@ redundant-cast = "warn"
 python-version = "3.13"
 
 [tool.ty.src]
-include = ["src"]
+include = [
+    "packages/strands-teams/src",
+    "packages/strands-teams-runtimes/src",
+    "packages/code-context-agent/src",
+]
 exclude = []
 
 # =============================================================================
@@ -183,7 +179,7 @@ skips = [
 
 [tool.coverage.run]
 branch = true
-source = ["code_context_agent"]
+source = ["code_context_agent", "strands_teams", "strands_teams_runtimes"]
 omit = [
     "*/tests/*",
     "*/__main__.py",
@@ -211,7 +207,16 @@ output = "coverage.xml"
 # =============================================================================
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = [
+    "packages/strands-teams/tests",
+    "packages/strands-teams-runtimes/tests",
+    "packages/code-context-agent/tests",
+]
+# Both packages ship a top-level ``tests`` package; the default ``prepend``
+# import mode cannot disambiguate identically named test subpackages across
+# them (e.g. ``tests.tools``). ``importlib`` imports each test module under a
+# unique name, so the whole workspace collects in one run.
+addopts = ["--import-mode=importlib"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
@@ -225,19 +230,7 @@ fail-on = "GPL;AGPL;SSPL;EUPL;CPAL;OSL;RPL"
 partial-match = true
 ignore-packages = [
     "code-context-agent",
+    "strands-teams",
+    "strands-teams-runtimes",
     "docutils",  # Triple-licensed BSD/GPL/Public Domain — usable under BSD
 ]
-
-# =============================================================================
-# Commitizen Configuration (Conventional Commits)
-# =============================================================================
-
-[tool.commitizen]
-name = "cz_conventional_commits"
-version_provider = "pep621"
-version_files = [
-    "src/code_context_agent/__init__.py:__version__"
-]
-tag_format = "v$version"
-update_changelog_on_bump = true
-version_scheme = "semver"

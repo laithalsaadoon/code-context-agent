@@ -1,91 +1,106 @@
 # code-context-agent
 
-AI-powered CLI tool that analyzes codebases and produces structured context
-documentation for AI coding assistants.
+A uv workspace with two packages: **`strands-teams`**, a domain-agnostic
+agent-teams framework on strands-agents, and **`code-context-agent`**, a CLI use
+case that analyzes codebases and produces structured context documentation for
+AI coding assistants.
+
+> Prior ERPAVal lessons live in [`.erpaval/INDEX.md`](.erpaval/INDEX.md); grep `.erpaval/solutions/**` before starting non-trivial work.
 
 ## Architecture
 
-Two-stage pipeline: deterministic index (16 steps, ~30-90s) → Coordinator Agent dispatches parallel Swarm teams → structured output with narrative bundles.
-Hook-driven display (Rich TUI or JSON logs). No AG-UI dependency.
+Two packages under `packages/`, split along the framework/use-case seam:
+
+- **`strands-teams`** (import `strands_teams`) — the reusable framework: the
+  `UseCase` contract, the `run_teams` runner, coordinator construction, native
+  Swarm team dispatch, findings/artifact persistence, narrative scoring, the
+  hook stack, layout, settings, and the Rich/JSON display.
+- **`code-context-agent`** (import `code_context_agent`) — the codebase-analysis
+  use case: `CodebaseAnalysisUseCase`, the `analyze`/`index`/`check` CLI, the
+  deterministic indexer, the discovery/git/BM25/shell tools, the GitNexus and
+  context7 MCP providers, and the `AnalysisResult` output model.
+
+A `CodebaseAnalysisUseCase` object plugs the domain into the framework; the CLI
+builds it and hands it to `strands_teams.run_teams_sync`. Two-stage flow:
+deterministic index (16 steps, ~30-90s) → coordinator dispatches parallel native
+Swarm teams → structured output with narrative bundles. Hook-driven display
+(Rich TUI or JSON logs).
 
 ```
-CLI (cyclopts) → index (deterministic, ~30-90s)
-                    ├── GitNexus analyze (structural code graph)
-                    ├── git hotspot + co-change analysis
-                    ├── repomix signatures + orientation
-                    ├── static scanners (semgrep, typecheck, lint, complexity, dead code)
-                    └── heuristic_summary.json (compact metrics for coordinator)
+CLI (cyclopts, code_context_agent.cli)
+  ├── analyze → CodebaseAnalysisUseCase → strands_teams.run_teams_sync
+  │      ├── pre_run: auto-index if heuristic_summary.json missing
+  │      ├── read_heuristic_summary → plan teams
+  │      ├── dispatch_team(...) × N  → parallel native Swarm teams
+  │      ├── read_team_findings → cross-reference
+  │      ├── write_bundle → CONTEXT.md + BUNDLE.{area}.md
+  │      ├── HookProvider-driven display (TUI or JSON logs)
+  │      └── AnalysisResult (structured output with bundles)
+  ├── index → Deterministic Indexer (GitNexus + git + static scanners, no LLM)
+  │      └── heuristic_summary.json (bridge artifact to the coordinator)
+  └── check → external-tool + AWS-credential preflight
 
-              → analyze (Coordinator, ~5-15 min)
-                    ├── read_heuristic_summary → plan teams
-                    ├── dispatch_team("team-structure", ...) ┐
-                    ├── dispatch_team("team-history", ...)    ├ parallel Swarm teams
-                    ├── dispatch_team("team-reader", ...)     ┘
-                    ├── read_team_findings → cross-reference
-                    ├── write_bundle → CONTEXT.md + BUNDLE.{area}.md
-                    ├── HookProvider-driven display (TUI or JSON logs)
-                    └── AnalysisResult (structured output with bundles)
-
-Deterministic Indexer (code-context-agent index)
+Deterministic Indexer (code_context_agent.indexer)
     ├── GitNexus analyze (Tree-sitter parsing, clustering, process tracing)
     ├── Git hotspot + co-change JSON output
     ├── Repomix signatures + orientation
     ├── Static scanners (semgrep, typecheck, lint, complexity, dead code)
     └── heuristic_summary.json (bridge to coordinator)
-
-FastMCP v3 Server (code-context-agent serve)
-    ├── start_analysis / check_analysis (kickoff/poll)
-    ├── git_evolution (hotspots, coupling, contributors)
-    ├── static_scan_findings (semgrep, typecheck, lint, complexity, dead code)
-    ├── heuristic_summary (compact index metrics)
-    ├── list_repos
-    └── 5 resource templates (analysis artifacts)
-
-Multi-Repo Registry (~/.code-context/registry.json)
-    └── list_repos MCP tool
 ```
 
 ### Key source locations
 
+Framework — `packages/strands-teams/src/strands_teams/`:
+
 | Path | What |
 |------|------|
-| `src/code_context_agent/cli.py` | CLI entry point: `analyze`, `serve` commands |
-| `src/code_context_agent/config.py` | Settings via pydantic-settings, `CODE_CONTEXT_` prefix |
-| `src/code_context_agent/agent/coordinator.py` | Coordinator agent factory: tools, model, heuristic summary, lean prompt |
-| `src/code_context_agent/agent/factory.py` | Analysis tool collection + GitNexus/context7 MCP providers |
-| `src/code_context_agent/agent/runner.py` | Analysis runner with coordinator invocation + hook-based display |
-| `src/code_context_agent/agent/hooks.py` | HookProviders: quality, compaction, tool efficiency, reasoning, fail-fast, team dispatch, display |
-| `src/code_context_agent/tools/coordinator_tools.py` | 6 coordinator tools: `dispatch_team`, `read_team_findings`, `write_bundle`, `read_heuristic_summary`, `score_narrative`, `enrich_bundle` |
-| `src/code_context_agent/consumer/phases.py` | 5-phase `AnalysisPhase` enum and tool-to-phase mapping |
-| `src/code_context_agent/mcp/server.py` | FastMCP v3 server (complementary to GitNexus) |
-| `src/code_context_agent/tools/discovery.py` | ripgrep, repomix tools |
-| `src/code_context_agent/tools/git.py` | Git history analysis tools |
-| `src/code_context_agent/tools/search/` | BM25 ranked text search |
-| `src/code_context_agent/indexer.py` | Deterministic index pipeline (GitNexus + git + static scanners) |
-| `src/code_context_agent/mcp/registry.py` | Multi-repo registry with lazy graph cache |
-| `src/code_context_agent/templates/` | Jinja2 prompts: `coordinator.md.j2` (~35 lines), partials/, steering/. Rendering in `templates/__init__.py` |
-| `src/code_context_agent/models/output.py` | AnalysisResult, Bundle, BusinessLogicItem, ArchitecturalRisk, RefactoringCandidate, CodeHealthMetrics |
+| `usecase.py` | `UseCase` abstract contract + `validate_use_case` |
+| `runner.py` | `run_teams` / `run_teams_sync` analysis runner (hook-based display) |
+| `coordinator.py` | `create_coordinator` — coordinator agent factory (tools, model, prompt) |
+| `teams.py` | Team tools: `dispatch_team`, `read_team_findings`, `write_artifact`, `score_narrative`, `enrich_artifact` |
+| `hooks.py` | HookProviders: quality, compaction, tool efficiency, reasoning, fail-fast, team dispatch, display |
+| `phases.py` | `PhaseSpec` (tool→phase map + names) |
+| `rubric.py` | `NarrativeRubric` + `DEFAULT_NARRATIVE_RUBRIC` scoring |
+| `layout.py` | `TeamsLayout` — run-artifact path contract |
+| `settings.py` | `TeamsSettings` base (model, execution, team-timeout knobs) |
+| `models.py` | `FrozenModel`, `StrictModel`, `Bundle`, `GeneratedFile`, etc. |
+| `display/` | Rich TUI + JSON-log display |
+| `templates/` | Framework prompt partials |
 
-### Tool categories (~25+)
+Use case — `packages/code-context-agent/src/code_context_agent/`:
 
-- **Coordinator** (6): `dispatch_team`, `read_team_findings`, `write_bundle`, `read_heuristic_summary`, `score_narrative`, `enrich_bundle`
-- **Discovery** (12): `create_file_manifest`, `repomix_orientation`, `repomix_bundle`, `repomix_bundle_with_context`, `repomix_compressed_signatures`, `repomix_json_export`, `repomix_split_bundle`, `rg_search`, `write_file`, `write_file_list`, `read_file_bounded`
+| Path | What |
+|------|------|
+| `cli.py` | CLI entry point: `analyze`, `index`, `check` |
+| `usecase.py` | `CodebaseAnalysisUseCase`: tool roster, phase spec, reasoning prompts, kickoff prompt, `pre_run` auto-index |
+| `config.py` | `Settings(TeamsSettings)` via pydantic-settings, `CODE_CONTEXT_` prefix |
+| `providers.py` | `build_gitnexus_provider` / `build_context7_provider` MCP providers |
+| `indexer.py` | Deterministic index pipeline (GitNexus + git + static scanners) |
+| `tools/discovery.py` | ripgrep, repomix, file tools |
+| `tools/git.py` | Git history analysis tools |
+| `tools/search/` | BM25 ranked text search |
+| `tools/shell_tool.py` | Security-hardened read-only shell tool |
+| `templates/` | Jinja2 prompts: `coordinator.md.j2`, partials/, steering/ |
+| `models/output.py` | `AnalysisResult`, `Bundle`, `BusinessLogicItem`, `ArchitecturalRisk`, `RefactoringCandidate`, `CodeHealthMetrics` |
+
+### Tool categories (26 built-in)
+
+- **Coordinator** (5, from `strands_teams.teams`): `dispatch_team`, `read_team_findings`, `write_bundle` (`write_artifact`), `score_narrative`, `enrich_bundle` (`enrich_artifact`)
+- **Planning** (1, use case): `read_heuristic_summary`
+- **Discovery** (11): `create_file_manifest`, `repomix_orientation`, `repomix_bundle`, `repomix_bundle_with_context`, `repomix_compressed_signatures`, `repomix_json_export`, `repomix_split_bundle`, `rg_search`, `write_file`, `write_file_list`, `read_file_bounded`
 - **Search** (1): `bm25_search` (BM25 ranked text search via rank_bm25)
 - **Git** (7): `git_hotspots`, `git_files_changed_together`, `git_blame_summary`, `git_file_history`, `git_contributors`, `git_recent_commits`, `git_diff_file`
 - **Shell** (1): `shell`
-- **Orchestration** (1): `graph` (from strands_tools, multi-agent DAG)
 - **GitNexus MCP** (6+): `gitnexus_query`, `gitnexus_context`, `gitnexus_impact`, `gitnexus_detect_changes`, `gitnexus_cypher`, `gitnexus_list_repos`
 - **context7 MCP**: `context7_resolve-library-id`, `context7_query-docs`
-- **MCP Server** (6): `start_analysis`, `check_analysis`, `list_repos`, `git_evolution`, `static_scan_findings`, `heuristic_summary`. All responses include contextual `next_steps` hints.
+
+The `strands_tools` `graph` tool is intentionally dropped (see ADR-0015).
 
 ### State management
 
-- **Team findings**: File-based at `.code-context/tmp/teams/{team_id}/findings.md` + `metadata.json`
-- **Heuristic summary**: `.code-context/heuristic_summary.json` (bridge between indexer and coordinator)
-- **Coordinator tools config**: Module-level `_output_dir`, `_repo_path`, `_tool_registry` in `tools/coordinator_tools.py`
-- **GitNexus**: GitNexus MCP server lifecycle managed by strands MCPClient in factory.py
-- **MCP jobs**: Module-level `_jobs` dict in `mcp/server.py` for kickoff/poll pattern
-- **Registry**: `~/.code-context/registry.json` with lazy graph cache (5-min TTL) in `mcp/registry.py`
+- **Team findings**: File-based under the layout root at `.code-context/tmp/teams/{team_id}/findings.md` + `metadata.json`, addressed via `TeamsLayout`
+- **Heuristic summary**: `.code-context/heuristic_summary.json` (bridge between indexer and coordinator; the planning sentinel resolved by `TeamsLayout.planning_sentinel_path()`)
+- **GitNexus / context7**: MCP server lifecycle managed by strands MCPClient in `providers.py`
 - **BM25 index cache**: Module-level `_indexes` dict in `tools/search/`
 - **Config**: Cached singleton via `get_settings()` with `@lru_cache`
 
@@ -109,44 +124,27 @@ def my_tool(param: str, option: int = 10) -> str:
 
 All tools return JSON strings. Error responses use `{"status": "error", "message": "..."}`.
 
-### MCP tools use `@mcp.tool` from FastMCP v3
+### The `UseCase` contract bridges domain to framework
 
-```python
-from fastmcp import FastMCP
-from typing import Annotated
-from pydantic import Field
-
-mcp = FastMCP("server-name")
-
-@mcp.tool
-def my_mcp_tool(
-    param: Annotated[str, Field(description="Description for AI")],
-) -> dict:
-    """First line = tool summary for search indexing.
-
-    USE THIS WHEN: ...
-    PREREQUISITE: ...
-
-    Returns:
-        {"key": "value", ...}
-    """
-    return {"key": "value"}
-```
-
-MCP tools return dicts (FastMCP handles serialization). Include `USE THIS WHEN` /
-`DO NOT USE IF` in docstrings so AI assistants know when to select the tool.
+A domain plugs into `strands_teams` by subclassing `strands_teams.UseCase` and
+supplying the tool roster, prompt template, phase spec, reasoning prompts,
+structured-output model, and settings. `CodebaseAnalysisUseCase`
+(`code_context_agent/usecase.py`) is the reference implementation. Build one and
+hand it to `run_teams` / `run_teams_sync`.
 
 ### Imports inside functions to avoid circular imports
 
-The `factory.py` imports all tool modules inside `get_analysis_tools()` rather
-than at module level. Follow this pattern when adding new tool modules.
+`CodebaseAnalysisUseCase.domain_tools()` imports all tool modules inside the
+method (factory pattern) rather than at module level. Follow this pattern when
+adding new tool modules.
 
 ### Pydantic models use custom base classes
 
-- `FrozenModel`: Immutable, for data transfer (output models, graph nodes/edges)
+- `FrozenModel`: Immutable, for data transfer (output models)
 - `StrictModel`: Mutable, for internal state
 
-Both are in `models/base.py`. Use `FrozenModel` for new data models.
+Both are exported from `strands_teams` (defined in `strands_teams/models.py`).
+Use `FrozenModel` for new data models.
 
 ## Development
 
@@ -168,7 +166,7 @@ Both are in `models/base.py`. Use `FrozenModel` for new data models.
 | Analyze a repo | `uv run code-context-agent analyze /path/to/repo` |
 | Analyze (bundles only) | `uv run code-context-agent analyze /path --bundles-only` |
 | Index a repo | `uv run code-context-agent index /path/to/repo` |
-| Start MCP server | `uv run code-context-agent serve` |
+| Check tool deps | `uv run code-context-agent check` |
 | Lint (Python) | `mise run lint` |
 | Format (Python) | `mise run format` |
 | Type check (Python) | `mise run typecheck` |
@@ -212,10 +210,12 @@ creates lightweight tags, `--follow-tags` only pushes annotated tags).
 
 ### Testing
 
-- `pytest` with `asyncio_mode = "auto"`
-- Tests in `tests/` mirroring `src/` structure
-- Graph model and analysis have thorough unit tests
-- No integration tests yet for MCP server or full analysis pipeline
+- `pytest` with `asyncio_mode = "auto"`, run from the workspace root
+- Tests live in each package's `tests/` mirroring its `src/` structure
+- Both packages ship a top-level `tests` package, so pytest runs with
+  `--import-mode=importlib` (configured in the root `pyproject.toml`)
+- Framework and use-case components have unit tests; no full end-to-end
+  analysis-pipeline integration test yet
 
 ## CI/CD (GitLab)
 
@@ -224,10 +224,14 @@ Pipeline stages: lint → test → build-docs → pages → build → release
 - **Release** only triggers on tags matching `^v\d+\.\d+\.\d+$`
 - **Pages** deploys mkdocs to GitLab Pages on main branch pushes
 - Uses `ghcr.io/astral-sh/uv:0.9-python3.13-bookworm-slim` image
+- Lint / type-check / bandit / semgrep all scan `packages/`; coverage spans both
+  `code_context_agent` and `strands_teams`
 
 ## Configuration reference
 
-All env vars use the `CODE_CONTEXT_` prefix:
+The use case reads env vars with the `CODE_CONTEXT_` prefix. Most knobs are
+defined on the framework's `TeamsSettings` base and inherited by `Settings`;
+the use case adds the two MCP toggles.
 
 | Variable | Default | Notes |
 |----------|---------|-------|
@@ -235,8 +239,9 @@ All env vars use the `CODE_CONTEXT_` prefix:
 | `CODE_CONTEXT_REGION` | `us-east-1` | AWS region |
 | `CODE_CONTEXT_TEMPERATURE` | `1.0` | Must be 1.0 for adaptive thinking |
 | `CODE_CONTEXT_REASONING_EFFORT` | `high` | Standard mode thinking effort |
-| `CODE_CONTEXT_FULL_REASONING_EFFORT` | `max` | Full mode thinking effort (Opus 4.6 only) |
+| `CODE_CONTEXT_FULL_REASONING_EFFORT` | `max` | Full mode thinking effort (Opus only) |
 | `CODE_CONTEXT_GITNEXUS_ENABLED` | `true` | Enable GitNexus MCP for structural code intelligence |
+| `CODE_CONTEXT_CONTEXT7_ENABLED` | `true` | Enable context7 MCP for library docs (requires npx) |
 | `CODE_CONTEXT_AGENT_MAX_TURNS` | `1000` | Standard mode max turns |
 | `CODE_CONTEXT_AGENT_MAX_DURATION` | `1200` | Standard mode: 20 min default |
 | `CODE_CONTEXT_FULL_MAX_TURNS` | `3000` | Full mode max agent turns |
@@ -245,13 +250,15 @@ All env vars use the `CODE_CONTEXT_` prefix:
 | `CODE_CONTEXT_TEAM_NODE_TIMEOUT` | `900` | Max seconds per agent node in team (standard) |
 | `CODE_CONTEXT_FULL_TEAM_EXECUTION_TIMEOUT` | `2400` | Max seconds per team swarm (full) |
 | `CODE_CONTEXT_FULL_TEAM_NODE_TIMEOUT` | `1800` | Max seconds per agent node in team (full) |
-| `CODE_CONTEXT_CONTEXT7_ENABLED` | `true` | Requires npx |
 | `CODE_CONTEXT_OTEL_DISABLED` | `true` | Avoids context detachment errors |
+
+A use case built on the framework directly (without the `CODE_CONTEXT_` prefix)
+reads the same knobs under the `TEAMS_` prefix via `TeamsSettings`.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **code-context-agent** (2060 symbols, 4158 relationships, 113 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **code-context-agent** (3325 symbols, 5152 relationships, 41 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -263,44 +270,12 @@ This project is indexed by GitNexus as **code-context-agent** (2060 symbols, 415
 - When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
 - When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
 
-## When Debugging
-
-1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
-2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
-3. `READ gitnexus://repo/code-context-agent/process/{processName}` — trace the full execution flow step by step
-4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
-
-## When Refactoring
-
-- **Renaming**: MUST use `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` first. Review the preview — graph edits are safe, text_search edits need manual review. Then run with `dry_run: false`.
-- **Extracting/Splitting**: MUST run `gitnexus_context({name: "target"})` to see all incoming/outgoing refs, then `gitnexus_impact({target: "target", direction: "upstream"})` to find all external callers before moving code.
-- After any refactor: run `gitnexus_detect_changes({scope: "all"})` to verify only expected files changed.
-
 ## Never Do
 
 - NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
 - NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
 - NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
 - NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
-
-## Tools Quick Reference
-
-| Tool | When to use | Command |
-|------|-------------|---------|
-| `query` | Find code by concept | `gitnexus_query({query: "auth validation"})` |
-| `context` | 360-degree view of one symbol | `gitnexus_context({name: "validateUser"})` |
-| `impact` | Blast radius before editing | `gitnexus_impact({target: "X", direction: "upstream"})` |
-| `detect_changes` | Pre-commit scope check | `gitnexus_detect_changes({scope: "staged"})` |
-| `rename` | Safe multi-file rename | `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` |
-| `cypher` | Custom graph queries | `gitnexus_cypher({query: "MATCH ..."})` |
-
-## Impact Risk Levels
-
-| Depth | Meaning | Action |
-|-------|---------|--------|
-| d=1 | WILL BREAK — direct callers/importers | MUST update these |
-| d=2 | LIKELY AFFECTED — indirect deps | Should test |
-| d=3 | MAY NEED TESTING — transitive | Test if critical path |
 
 ## Resources
 
@@ -310,32 +285,6 @@ This project is indexed by GitNexus as **code-context-agent** (2060 symbols, 415
 | `gitnexus://repo/code-context-agent/clusters` | All functional areas |
 | `gitnexus://repo/code-context-agent/processes` | All execution flows |
 | `gitnexus://repo/code-context-agent/process/{name}` | Step-by-step execution trace |
-
-## Self-Check Before Finishing
-
-Before completing any code modification task, verify:
-1. `gitnexus_impact` was run for all modified symbols
-2. No HIGH/CRITICAL risk warnings were ignored
-3. `gitnexus_detect_changes()` confirms changes match expected scope
-4. All d=1 (WILL BREAK) dependents were updated
-
-## Keeping the Index Fresh
-
-After committing code changes, the GitNexus index becomes stale. Re-run analyze to update it:
-
-```bash
-npx gitnexus analyze
-```
-
-If the index previously included embeddings, preserve them by adding `--embeddings`:
-
-```bash
-npx gitnexus analyze --embeddings
-```
-
-To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.embeddings` field shows the count (0 means no embeddings). **Running analyze without `--embeddings` will delete any previously generated embeddings.**
-
-> Claude Code users: A PostToolUse hook handles this automatically after `git commit` and `git merge`.
 
 ## CLI
 
