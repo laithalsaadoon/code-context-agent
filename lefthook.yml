@@ -17,7 +17,7 @@ pre-commit:
       stage_fixed: true
 
     - name: ty-check
-      run: uv run ty check src/
+      run: uv run ty check packages/
 
     - name: betterleaks
       run: betterleaks git --pre-commit --staged --no-banner
@@ -26,13 +26,13 @@ pre-push:
   parallel: true
   jobs:
     - name: lint
-      run: uvx ruff check src/
+      run: uvx ruff check packages/
 
     - name: format-check
-      run: uvx ruff format --check src/
+      run: uvx ruff format --check packages/
 
     - name: typecheck
-      run: uv run ty check src/
+      run: uv run ty check packages/
 
     - name: test
       run: uv run pytest
@@ -41,10 +41,10 @@ pre-push:
       run: betterleaks git --no-banner .
 
     - name: semgrep
-      run: semgrep scan --config auto --config p/python --config p/owasp-top-ten --config p/security-audit --exclude-rule python.flask.security.xss.audit.direct-use-of-jinja2.direct-use-of-jinja2 --error --quiet src/
+      run: semgrep scan --config auto --config p/python --config p/owasp-top-ten --config p/security-audit --exclude-rule python.flask.security.xss.audit.direct-use-of-jinja2.direct-use-of-jinja2 --error --quiet packages/
 
     - name: bandit
-      run: uv run bandit -c pyproject.toml -r src/ --severity-level=high --confidence-level=high
+      run: uv run bandit -c pyproject.toml -r packages/ --severity-level=high --confidence-level=high
 
     - name: osv-scanner
       run: osv-scanner scan --lockfile uv.lock || echo "⚠ OSV-Scanner found vulnerabilities (informational)"
