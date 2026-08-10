@@ -97,6 +97,7 @@ ignore = [
     "S603",    # Allow subprocess calls (needed for shell tool execution)
     "S607",    # Allow partial executable paths (sh -c pattern is safe)
     "PLR0913", # Allow many function arguments (tool function design)
+    "PLR0917", # Allow many positional arguments (tool function design)
     "PLW1510", # Allow subprocess.run without check (we handle errors)
     "ARG002",  # Allow unused method arguments (protocol interface compliance)
     "SIM105",  # Allow try-except-pass patterns (explicit is clearer)

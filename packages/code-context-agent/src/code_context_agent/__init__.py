@@ -26,7 +26,7 @@ if os.environ.get("CODE_CONTEXT_OTEL_DISABLED", "true").lower() != "false":
                     # that occur in async generators during GeneratorExit
                     return None
 
-            contextvars_context.ContextVarsRuntimeContext.detach = patched_detach  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+            contextvars_context.ContextVarsRuntimeContext.detach = patched_detach  # type: ignore[assignment]
         except ImportError:
             # opentelemetry not installed — nothing to patch
             pass
