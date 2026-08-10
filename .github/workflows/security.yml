@@ -38,7 +38,7 @@ jobs:
             packages/
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: semgrep.sarif
           category: semgrep
@@ -61,7 +61,7 @@ jobs:
         run: uv run bandit -c pyproject.toml -r packages/ -f sarif -o bandit.sarif --exit-zero
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: bandit.sarif
           category: bandit
@@ -90,7 +90,7 @@ jobs:
         run: betterleaks git --no-banner -f sarif -r betterleaks.sarif .
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: betterleaks.sarif
           category: betterleaks
@@ -105,7 +105,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: OSV Scanner
         id: scan
-        uses: google/osv-scanner-action/osv-scanner-action@c51854704019a247608d928f370c98740469d4b5 # v2.3.5
+        uses: google/osv-scanner-action/osv-scanner-action@8deb546fdb875b9996d27d4950be7312dac076a1 # v2.5.0
         continue-on-error: true # findings are surfaced via SARIF + step summary, not CI failure
         with:
           scan-args: |-
@@ -113,7 +113,7 @@ jobs:
             --lockfile=ui/pnpm-lock.yaml
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: results.sarif
           category: osv-scanner
@@ -147,7 +147,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           severity: HIGH,CRITICAL
@@ -155,7 +155,7 @@ jobs:
           output: trivy.sarif
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: trivy.sarif
           category: trivy
@@ -193,7 +193,7 @@ jobs:
           uv run --with pip-licenses pip-licenses --format=markdown --output-file=license-report.md
       - name: Upload reports
         if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: license-reports
           path: |
@@ -218,7 +218,7 @@ jobs:
           format: spdx-json
           output-file: sbom.spdx.json
       - name: Upload SBOMs
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sbom
           path: |
@@ -250,7 +250,7 @@ jobs:
         continue-on-error: true
       - name: Upload Grype SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: grype.sarif
           category: grype
