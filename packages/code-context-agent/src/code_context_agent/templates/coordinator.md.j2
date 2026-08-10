@@ -10,7 +10,11 @@ Output directory: {{ planning_context.output_dir }}
 The repository has been deterministically indexed. Key metrics:
 - **{{ planning_context.heuristic.volume.total_files }}** files across **{{ planning_context.heuristic.volume.languages | length }}** languages
 - **{{ planning_context.heuristic.volume.estimated_tokens | int }}** estimated tokens
+{% if planning_context.heuristic.volume.frameworks is defined %}
 - Frameworks: {{ planning_context.heuristic.volume.frameworks | join(", ") or "none detected" }}
+{% else %}
+- Frameworks: none detected
+{% endif %}
 {% if planning_context.heuristic.gitnexus.indexed %}
 - **{{ planning_context.heuristic.gitnexus.community_count }}** functional communities, **{{ planning_context.heuristic.gitnexus.process_count }}** execution flows
 {% if planning_context.heuristic.gitnexus.top_communities %}

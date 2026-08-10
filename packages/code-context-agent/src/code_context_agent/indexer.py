@@ -941,7 +941,11 @@ def _get_total_commits(repo: Path) -> int:
 def _build_health_section(out: Path) -> dict[str, Any]:
     """Build the health section of the heuristic summary from index artifacts."""
     semgrep_data = _load_json_artifact(out / "semgrep_auto.json")
-    semgrep_severities = _count_semgrep_by_severity(semgrep_data) if semgrep_data else {}
+    semgrep_severities = (
+        _count_semgrep_by_severity(semgrep_data)
+        if semgrep_data
+        else {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    )
 
     owasp_data = _load_json_artifact(out / "semgrep_owasp.json")
     owasp_categories = _count_owasp_by_category(owasp_data) if owasp_data else {}
@@ -1075,6 +1079,73 @@ def _get_gitnexus_stats(repo: Path, repo_name: str) -> dict[str, Any]:  # noqa: 
     return result
 
 
+_FRAMEWORK_MARKERS: dict[str, list[str]] = {
+    "Django": ["django"],
+    "Flask": ["flask"],
+    "FastAPI": ["fastapi"],
+    "React": ["react", "react-dom"],
+    "Next.js": ["next"],
+    "Express": ["express"],
+    "Spring Boot": ["spring-boot"],
+    "Rails": ["rails"],
+    "Strands": ["strands-agents"],
+    "LangChain": ["langchain"],
+    "Pytest": ["pytest"],
+    "SQLAlchemy": ["sqlalchemy"],
+    "Pydantic": ["pydantic"],
+    "Terraform": [],  # detected by marker files only
+    "CDK": ["aws-cdk-lib", "aws_cdk"],
+}
+
+_FRAMEWORK_FILES: dict[str, list[str]] = {
+    "Django": ["manage.py", "settings.py"],
+    "Rails": ["Gemfile", "config/routes.rb"],
+    "Terraform": ["*.tf"],
+    "CDK": ["cdk.json"],
+    "Next.js": ["next.config.js", "next.config.mjs", "next.config.ts"],
+}
+
+_DEP_MANIFESTS = ("pyproject.toml", "requirements.txt", "requirements-dev.txt", "setup.cfg", "package.json")
+
+
+def _read_dep_manifests(repo: Path) -> str:
+    """Read and concatenate all dependency manifest files."""
+    parts: list[str] = []
+    for name in _DEP_MANIFESTS:
+        p = repo / name
+        if p.exists():
+            try:
+                parts.append(p.read_text(errors="ignore"))
+            except OSError:
+                continue
+    return "\n".join(parts)
+
+
+def _match_marker_files(repo: Path) -> set[str]:
+    """Detect frameworks by presence of marker files."""
+    detected: set[str] = set()
+    for framework, patterns in _FRAMEWORK_FILES.items():
+        for pattern in patterns:
+            if "*" in pattern:
+                if any(repo.glob(pattern)):
+                    detected.add(framework)
+            elif (repo / pattern).exists():
+                detected.add(framework)
+    return detected
+
+
+def _detect_frameworks(repo: Path) -> list[str]:
+    """Detect frameworks by checking dependency manifests and marker files."""
+    dep_lower = _read_dep_manifests(repo).lower()
+    detected = _match_marker_files(repo)
+
+    for framework, markers in _FRAMEWORK_MARKERS.items():
+        if any(marker in dep_lower for marker in markers):
+            detected.add(framework)
+
+    return sorted(detected)
+
+
 def _generate_heuristic_summary(
     files: list[str],
     lang_files: dict[str, list[str]],
@@ -1103,6 +1174,7 @@ def _generate_heuristic_summary(
             "total_lines": total_lines,
             "estimated_tokens": estimated_tokens or int(total_lines * 2.5),
             "languages": {lang: len(fs) for lang, fs in lang_files.items()},
+            "frameworks": _detect_frameworks(repo),
         },
         "health": _build_health_section(out),
         "git": _build_git_section(repo, out),

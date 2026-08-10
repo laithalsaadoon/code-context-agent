@@ -172,6 +172,13 @@ def create_coordinator(
         conversation_manager=conversation_manager,
     )
 
+    # The Agent's process_tools() expands ToolProvider instances (e.g. MCPClient
+    # for GitNexus/context7) into individual tool objects in its registry. Merge
+    # that expanded registry over the static one so dispatch_team resolves MCP
+    # tool names like "gitnexus_query" to real tool objects instead of dropping
+    # them as unknown strings.
+    invocation_state["tool_registry"] = {**tool_registry, **dict(agent.tool_registry.registry)}
+
     if hooks:
         for hook in hooks:
             agent.hooks.add_hook(hook)

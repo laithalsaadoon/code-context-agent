@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import sys
 
-from loguru import Logger, logger
+import loguru
+from loguru import logger
 
 
 def setup_logger(level: str = "INFO", log_file: str | None = None) -> None:
@@ -39,7 +40,7 @@ def setup_logger(level: str = "INFO", log_file: str | None = None) -> None:
         )
 
 
-def get_logger(name: str) -> Logger:
+def get_logger(name: str) -> loguru.Logger:
     """Get a logger instance bound to a specific module name.
 
     Args:
